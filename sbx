@@ -230,7 +230,7 @@ run_sandbox() {
     --security-opt=no-new-privileges
     --read-only
     --read-only-tmpfs=false
-    --tmpfs "/tmp:rw,noexec,nosuid,nodev,size=512m,mode=1777"
+    --tmpfs "/tmp:rw,nosuid,nodev,size=512m,mode=1777"
     --pids-limit=2048
     --cpus "$sandbox_cpus"
     --memory "${sandbox_memory_mib}m"
