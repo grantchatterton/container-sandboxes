@@ -118,6 +118,13 @@ load_sandbox() {
       "$HOME/.bunfig.toml:/home/node/.bunfig.toml:ro"
     )
   fi
+
+  # Host agent skills, if present, are shared read-only.
+  if [[ -d "$HOME/.agents/skills" ]]; then
+    sandbox_volumes+=(
+      "$HOME/.agents/skills:/home/node/.agents/skills:ro"
+    )
+  fi
 }
 
 # ---------------------------------------------------------------------------

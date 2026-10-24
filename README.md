@@ -59,6 +59,7 @@ container (workdir matches). Choose a narrow project directory: do not run from
 your home or a directory containing unrelated secrets. Host `/` is rejected.
 Paths containing `:` or `,` are rejected to avoid ambiguous mount syntax.
 If `~/.bunfig.toml` exists, it is mounted read-only into the container.
+If `~/.agents/skills` exists, it is mounted read-only at the same path.
 
 Agent state persists in named volumes (`:U` so ownership matches the container
 user):
