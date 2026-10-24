@@ -228,7 +228,7 @@ run_sandbox() {
     --read-only
     --read-only-tmpfs=false
     --tmpfs "/tmp:rw,noexec,nosuid,nodev,size=512m,mode=1777"
-    --pids-limit=512
+    --pids-limit=2048
     --cpus "$sandbox_cpus"
     --memory "${sandbox_memory_mib}m"
     --workdir "$project_dir"
