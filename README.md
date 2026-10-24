@@ -1,7 +1,7 @@
 # container-sandboxes
 
-`sbx` builds and runs hardened Podman containers for Claude Code, Codex CLI,
-Cursor Agent, and Pi. Each sandbox corresponds to a final target in the shared
+`sbx` builds and runs hardened Podman containers for Claude Code, Cursor Agent,
+and Pi. Each sandbox corresponds to a final target in the shared
 `Dockerfile`.
 Requires Linux, Bash 4.4+, Podman (preferably rootless), and `realpath`.
 CPU/memory enforcement requires working cgroup delegation (normally cgroups v2).
@@ -9,9 +9,8 @@ If `krun` is on `PATH`, runs use the krun microVM runtime.
 
 ```sh
 ln -sf "$PWD/sbx" ~/.local/bin/sbx   # install from this checkout
-sbx list                           # claude, codex, pi, cursor
+sbx list                           # claude, cursor, pi
 sbx run pi                         # cwd mounted at the same path
-sbx run codex -- exec 'fix the tests'
 sbx run cursor -- 'explain this project'
 sbx run claude -- 'explain this project'
 sbx update claude                  # refresh base images and installed agent
@@ -70,7 +69,6 @@ user):
 | Sandbox | Volume | Container path |
 | --- | --- | --- |
 | claude | `claude-home` | `/home/node/.claude` |
-| codex | `codex-home` | `/home/node/.codex` |
 | pi | `pi-agent-home` | `/home/node/.pi/agent` |
 
 These writable volumes hold authentication, config, sessions, and caches. Log

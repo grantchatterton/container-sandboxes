@@ -32,16 +32,6 @@ COPY --from=claude-installer /out/claude /usr/local/bin/claude
 ENTRYPOINT ["claude"]
 
 # ---------------------------------------------------------------------------
-# Codex
-# ---------------------------------------------------------------------------
-FROM base AS codex
-USER root
-ARG CACHE_BUST=1
-RUN npm install -g --ignore-scripts @openai/codex
-USER node
-ENTRYPOINT ["codex"]
-
-# ---------------------------------------------------------------------------
 # Pi
 # ---------------------------------------------------------------------------
 FROM base AS pi
