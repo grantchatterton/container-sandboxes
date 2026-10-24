@@ -9,7 +9,7 @@ FROM docker.io/oven/bun:${BUN_VERSION}-slim AS bun
 # ---------------------------------------------------------------------------
 FROM docker.io/library/node:${NODE_VERSION}-trixie-slim AS base
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends bash ca-certificates fd-find git ripgrep \
+  && apt-get install -y --no-install-recommends bash ca-certificates fd-find git jq ripgrep shellcheck shfmt \
   && rm -rf /var/lib/apt/lists/*
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
 RUN ln -sf bun /usr/local/bin/bunx
