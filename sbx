@@ -211,6 +211,9 @@ run_sandbox() {
   # A colon or comma would make the --volume spec ambiguous.
   [[ "$project_dir" != *:* && "$project_dir" != *,* ]] || die 'project path must not contain a colon or comma'
   [[ "$project_dir" != / ]] || die 'refusing to expose the entire host root as a workspace'
+  # Only mount a directory that is strictly inside the projects tree. Only the
+  # trailing * is unquoted, so it matches any subpath.
+  [[ "$project_dir" == /home/grant/Projects/* ]] || die 'refusing to start: current directory is not under /home/grant/Projects'
 
   if ! podman image exists "$sandbox_image"; then
     build_image cached

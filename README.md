@@ -58,8 +58,10 @@ Every run uses:
 
 The **current directory is mounted read-write at the same host path** inside the
 container (workdir matches). Choose a narrow project directory: do not run from
-your home or a directory containing unrelated secrets. Host `/` is rejected.
-Paths containing `:` or `,` are rejected to avoid ambiguous mount syntax.
+your home or a directory containing unrelated secrets. Host `/` is rejected, and
+the directory must be a subdirectory of `/home/grant/Projects` (that directory
+itself is not enough). Paths containing `:` or `,` are rejected to avoid
+ambiguous mount syntax.
 If `~/.bunfig.toml` exists, it is mounted read-only into the container.
 If `~/.agents/skills` exists, it is mounted read-only at the same path.
 
