@@ -2,6 +2,8 @@
 
 `sbx` is a bash script that builds and runs Podman sandboxes. See README.md.
 
-- `sbx`: CLI commands (`run`, `update`, `list`), sandbox definitions (`load_sandbox`), and Podman build/run argument assembly.
-- The root `Dockerfile` has a shared base and per-agent targets. `sbx` reads it from its own directory (resolving symlinks) and passes it to Podman over stdin.
-- Before finishing a change, run `bash -n sbx` and `shellcheck sbx` if available. Keep arguments in arrays and quote expansions; the script runs under `set -euo pipefail`.
+- `sbx`: CLI commands (`run`, `update`, `list`), shared sandbox defaults (`load_sandbox`), and Podman build/run argument assembly.
+- `sandboxes/<name>/sandbox.sh`: per-sandbox run settings, sourced by `load_sandbox`. Only set `sandbox_*` variables there; a new directory is discovered automatically.
+- `base/Dockerfile` defines the shared `base` stage; `sandboxes/<name>/Dockerfile` builds `FROM base` and its last stage is the image. `sbx` resolves both from its own directory (following symlinks), concatenates them, and passes the result to Podman over stdin.
+- Before finishing a change, run `bash -n sbx` and `shellcheck -x -s bash sbx sandboxes/*/sandbox.sh` if available. Keep arguments in arrays; the script runs under `set -euo pipefail`.
+- Always quote variable expansions and command substitutions (`"$var"`, `"${arr[@]}"`, `"$(cmd)"`), including in `sandboxes/*/sandbox.sh`. Leave one unquoted only where quoting changes meaning (a regex after `=~`, a glob pattern after `==`/`!=` or in `case`), and say why in a comment.

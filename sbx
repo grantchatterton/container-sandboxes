@@ -1,24 +1,31 @@
 #!/usr/bin/env bash
 # sbx: build and run coding-agent sandboxes using rootless Podman.
-# Install via symlink: the Dockerfile is always resolved beside this script.
+# Install via symlink: base/ and sandboxes/ are always resolved beside this
+# script.
 set -euo pipefail
 
 SCRIPT_DIR="$(dirname -- "$(realpath -- "${BASH_SOURCE[0]}")")"
-DOCKERFILE_PATH="$SCRIPT_DIR/Dockerfile"
-SANDBOXES=(claude cursor pi)
+BASE_DOCKERFILE="$SCRIPT_DIR/base/Dockerfile"
+SANDBOXES_DIR="$SCRIPT_DIR/sandboxes"
 
 usage() {
+  local -a names
+  mapfile -t names < <(list_sandboxes)
+
   cat <<'EOF'
 Usage: sbx <command> [options]
 
 Commands:
   run <name> [-- AGENT_ARGS...]
                 Run an agent in the current directory; build if missing
-  update <name> Rebuild an image, refreshing base images and the agent
+  update <name|all>
+                Rebuild an image, refreshing base images and the agent.
+                With "all", rebuild every sandbox.
   list          List supported sandboxes
 
-Sandboxes: claude, cursor, pi
-
+EOF
+  printf 'Sandboxes: %s\n\n' "${names[*]}"
+  cat <<'EOF'
 Run options:
   --            Pass all following arguments directly to the agent
   -h, --help    Show help (also available after any command)
@@ -28,9 +35,10 @@ Examples:
   sbx run claude -- 'explain this project'
   sbx run cursor -- 'explain this project'
   sbx update claude
+  sbx update all
 
 The current directory is mounted read-write at the same path inside the
-container. Agent home directories live in named Podman volumes. The root
+container. Agent state lives in named Podman volumes or tmpfs. The root
 filesystem is read-only; /tmp is ephemeral. Network access is enabled for
 model APIs and package downloads. Only Git identity is forwarded from the
 host, not your entire environment.
@@ -54,12 +62,22 @@ require_podman() {
 # Sandbox definitions
 # ---------------------------------------------------------------------------
 
-# Set the sandbox_* globals describing sandbox $1. Each sandbox matches a final
-# target in the Dockerfile. Arrays keep values with spaces intact and avoid
-# passing user input through eval or the shell.
+# Print the names of sandboxes that have a sandboxes/<name>/sandbox.sh file.
+list_sandboxes() {
+  local config
+  for config in "$SANDBOXES_DIR"/*/sandbox.sh; do
+    [[ -f "$config" ]] || continue
+    basename -- "$(dirname -- "$config")"
+  done
+}
+
+# Set the sandbox_* globals describing sandbox $1. Defaults are set here, then
+# sandboxes/<name>/sandbox.sh is sourced to adjust them. Arrays keep values with
+# spaces intact and avoid passing user input through eval or the shell.
 #
 #   sandbox_image        image tag to build and run
-#   sandbox_target       Dockerfile build target
+#   sandbox_dockerfile   Dockerfile appended to base/Dockerfile; its last stage
+#                        is the image
 #   sandbox_cpus         CPU limit
 #   sandbox_memory_mib   memory limit in MiB
 #   sandbox_agent_args   default arguments passed to the agent
@@ -67,10 +85,19 @@ require_podman() {
 #   sandbox_run_opts     additional `podman run` options (env, volumes, mounts,
 #                        tmpfs, secrets, etc.)
 load_sandbox() {
-  local sandbox_name="$1"
+  local sandbox_name="$1" sandbox_config
+  local -a names
+
+  # Restrict names so they can't escape the sandboxes directory. The regex is
+  # unquoted on purpose: a quoted right side of =~ matches literally.
+  sandbox_config="$SANDBOXES_DIR/$sandbox_name/sandbox.sh"
+  if [[ ! "$sandbox_name" =~ ^[a-z0-9][a-z0-9_-]*$ || ! -f "$sandbox_config" ]]; then
+    mapfile -t names < <(list_sandboxes)
+    die "unknown sandbox '$sandbox_name' (choose: ${names[*]})"
+  fi
 
   sandbox_image="localhost/${sandbox_name}-sandbox:latest"
-  sandbox_target="$sandbox_name"
+  sandbox_dockerfile="$SANDBOXES_DIR/$sandbox_name/Dockerfile"
   sandbox_cpus=4
   sandbox_memory_mib=8192
   sandbox_agent_args=()
@@ -79,38 +106,8 @@ load_sandbox() {
     --env "TERM=${TERM:-xterm-256color}"
   )
 
-  case "$sandbox_name" in
-  claude)
-    sandbox_run_opts+=(
-      --env DISABLE_AUTOUPDATER=1
-      --env CLAUDE_CONFIG_DIR=/home/node/.claude
-      --volume "claude-home:/home/node/.claude:U"
-    )
-    ;;
-  pi)
-    sandbox_run_opts+=(
-      --env PI_OFFLINE=1
-      --env PI_TELEMETRY=0
-      --volume "pi-agent-home:/home/node/.pi/agent:U"
-    )
-    sandbox_agent_args+=(
-      --no-session
-    )
-    ;;
-  cursor)
-    sandbox_run_opts+=(
-      --tmpfs "/home/node/.config/cursor:rw,noexec,nosuid,nodev,size=1m,mode=0700,U"
-      --tmpfs "/home/node/.cursor:rw,noexec,nosuid,nodev,size=512m,mode=0700,U"
-      --secret "cursor_api_key,type=env,target=CURSOR_API_KEY"
-    )
-    sandbox_agent_args+=(
-      --trust
-      --yolo
-      --model cursor-grok-4.5-high-fast
-    )
-    ;;
-  *) die "unknown sandbox '$sandbox_name' (choose: ${SANDBOXES[*]})" ;;
-  esac
+  # shellcheck source=/dev/null
+  source "$sandbox_config"
 
   # If $HOME/.bunfig.toml exists, mount it read-only.
   if [[ -f "$HOME/.bunfig.toml" ]]; then
@@ -136,15 +133,21 @@ load_sandbox() {
 #
 # The build context is an EMPTY temporary directory, never the user's project
 # or this checkout, so source code and secrets can't reach the builder. The
-# Dockerfile comes in on stdin. The build runs in a subshell to scope the EXIT
-# trap, so the context is removed even when the build fails.
+# base and sandbox Dockerfiles are concatenated and sent on stdin, so the base
+# stays an ordinary stage: its layers are shared through the build cache, and
+# --pull=always never tries to pull a local-only base image. The build runs in
+# a subshell to scope the EXIT trap, so the context is removed even when the
+# build fails.
 build_image() {
-  local build_mode="$1" node_version bun_version
-  local -a build_args=(--file - --target "$sandbox_target" --tag "$sandbox_image")
+  local build_mode="$1" node_version bun_version dockerfile
+  local -a build_args=(--file - --tag "$sandbox_image")
 
-  [[ -r "$DOCKERFILE_PATH" ]] || die "cannot read $DOCKERFILE_PATH"
+  for dockerfile in "$BASE_DOCKERFILE" "$sandbox_dockerfile"; do
+    [[ -r "$dockerfile" ]] || die "cannot read $dockerfile"
+  done
 
-  # Match host runtimes when available; otherwise keep the Dockerfile defaults.
+  # Match host runtimes when available; otherwise keep the base/Dockerfile
+  # defaults.
   if command -v node >/dev/null 2>&1 && node_version="$(node --version 2>/dev/null)" && [[ -n "$node_version" ]]; then
     build_args+=(--build-arg "NODE_VERSION=${node_version#v}")
   fi
@@ -167,7 +170,8 @@ build_image() {
     trap 'rm -rf -- "$context_dir"' EXIT
 
     printf 'sbx: building %s\n' "$sandbox_image" >&2
-    podman build --jobs=4 "${build_args[@]}" "${sandbox_build_opts[@]}" "$context_dir" <"$DOCKERFILE_PATH"
+    cat -- "$BASE_DOCKERFILE" "$sandbox_dockerfile" |
+      podman build --jobs=4 "${build_args[@]}" "${sandbox_build_opts[@]}" "$context_dir"
   )
 }
 
@@ -208,7 +212,8 @@ run_sandbox() {
   local -a run_args
 
   project_dir="$(pwd -P)"
-  # A colon or comma would make the --volume spec ambiguous.
+  # A colon or comma would make the --volume spec ambiguous. Patterns on the
+  # right of == and != stay unquoted so they glob-match.
   [[ "$project_dir" != *:* && "$project_dir" != *,* ]] || die 'project path must not contain a colon or comma'
   [[ "$project_dir" != / ]] || die 'refusing to expose the entire host root as a workspace'
   # Only mount a directory that is strictly inside the projects tree. Only the
@@ -269,12 +274,32 @@ cmd_list() {
     return
   fi
   (($# == 0)) || die 'list does not take arguments'
-  printf '%s\n' "${SANDBOXES[@]}"
+  list_sandboxes
+}
+
+# Rebuild the image for sandbox $1, or for every sandbox when $1 is "all".
+# load_sandbox sets globals, so each sandbox is loaded right before its build.
+update_sandboxes() {
+  local sandbox_name="$1" name
+  local -a names
+
+  if [[ "$sandbox_name" == all ]]; then
+    mapfile -t names < <(list_sandboxes)
+  else
+    names=("$sandbox_name")
+  fi
+
+  for name in "${names[@]}"; do
+    load_sandbox "$name"
+    build_image refresh
+  done
 }
 
 # Shared parser for `run` and `update`:
 #   <subcommand> <name> [-h|--help] [-- AGENT_ARGS...]
-# Only `run` accepts agent arguments after --.
+# Only `run` accepts agent arguments after --. For `update`, <name> may be
+# "all". The sandbox is loaded after parsing, so "all" never reaches
+# load_sandbox.
 cmd_run_or_update() {
   local subcommand="$1" sandbox_name
   shift
@@ -286,7 +311,6 @@ cmd_run_or_update() {
   (($# > 0)) || die "$subcommand requires a sandbox name (see sbx --help)"
   sandbox_name="$1"
   shift
-  load_sandbox "$sandbox_name"
 
   while (($# > 0)); do
     case "$1" in
@@ -305,8 +329,11 @@ cmd_run_or_update() {
 
   require_podman
   case "$subcommand" in
-  run) run_sandbox "$@" ;;
-  update) build_image refresh ;;
+  run)
+    load_sandbox "$sandbox_name"
+    run_sandbox "$@"
+    ;;
+  update) update_sandboxes "$sandbox_name" ;;
   esac
 }
 
