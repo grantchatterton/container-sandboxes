@@ -7,4 +7,5 @@ sandbox_run_opts+=(
 )
 sandbox_agent_args+=(
   --no-session
+  --append-system-prompt "$(cat -- "$SCRIPT_DIR/base/append-system-prompt.md")"
 )

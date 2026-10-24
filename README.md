@@ -40,11 +40,13 @@ arguments (stripping Node's leading `v`). If either runtime is unavailable or
 its version command fails or returns empty output, that runtime uses its
 default in `base/Dockerfile`. Run `sbx update <name>` (or `sbx update all`) to
 pick up host version changes in an existing image. The shared base includes
-Node.js, npm, Bun/bunx, Bash, CA certificates, fd-find, Git, jq, Python 3, ripgrep,
-ShellCheck, and shfmt. All final images run as the non-root `node` user.
+Node.js, npm, Bun/bunx, Bash, CA certificates, fd-find (`fdfind`), Git, jq, and
+ripgrep. All final images run as the non-root `node` user.
 Claude and Cursor Agent install in separate build stages based on the shared
 `installer` stage (Debian with curl); Cursor Agent ships its own Node binary
-under `/opt/cursor-agent`.
+under `/opt/cursor-agent`. Claude and Pi append `base/append-system-prompt.md`
+to the agent system prompt on each run so the model knows which CLI tools are
+available and key sandbox constraints; Cursor Agent has no equivalent flag.
 
 ## Runtime security and writable storage
 
@@ -113,9 +115,11 @@ volume, e.g. `podman volume rm pi-agent-home` (destructive).
 and empty `sandbox_agent_args`, `sandbox_build_opts`, `sandbox_run_opts` arrays),
 then sources `sandboxes/<name>/sandbox.sh` to adjust them. Put env, volumes,
 mounts, tmpfs, secrets, and other `podman run` extras in `sandbox_run_opts`.
-`sandbox.sh` files should only set `sandbox_*` variables; keep arguments as
-array elements, not shell snippets. Raw options can weaken the security
-baseline; prefer changing only what you need.
+Default agent flags go in `sandbox_agent_args` (for example Claude and Pi append
+`base/append-system-prompt.md`). `sandbox.sh` files should only set
+`sandbox_*` variables; keep arguments as array elements, not shell snippets.
+Raw options can weaken the security baseline; prefer changing only what you
+need.
 
 To add an agent, create `sandboxes/<name>/` (names are lowercase letters,
 digits, `-`, `_`) with a `sandbox.sh` and a `Dockerfile` whose last stage is

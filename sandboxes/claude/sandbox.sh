@@ -7,3 +7,6 @@ sandbox_run_opts+=(
   --volume "claude-home:/home/node/.claude:U"
   --tmpfs "/home/node/.npm:rw,noexec,nosuid,nodev,size=512m,mode=0700,U"
 )
+sandbox_agent_args+=(
+  --append-system-prompt "$(cat -- "$SCRIPT_DIR/base/append-system-prompt.md")"
+)
