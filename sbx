@@ -50,10 +50,6 @@ die() {
   exit 1
 }
 
-is_help_flag() {
-  [[ "$1" == -h || "$1" == --help ]]
-}
-
 require_podman() {
   command -v podman >/dev/null 2>&1 || die 'podman is required but was not found in PATH'
 }
@@ -102,26 +98,10 @@ load_sandbox() {
   sandbox_memory_mib=8192
   sandbox_agent_args=()
   sandbox_build_opts=()
-  sandbox_run_opts=(
-    --env "TERM=${TERM:-xterm-256color}"
-  )
+  sandbox_run_opts=()
 
   # shellcheck source=/dev/null
   source "$sandbox_config"
-
-  # If $HOME/.bunfig.toml exists, mount it read-only.
-  if [[ -f "$HOME/.bunfig.toml" ]]; then
-    sandbox_run_opts+=(
-      --volume "$HOME/.bunfig.toml:/home/node/.bunfig.toml:ro"
-    )
-  fi
-
-  # Host agent skills, if present, are shared read-only.
-  if [[ -d "$HOME/.agents/skills" ]]; then
-    sandbox_run_opts+=(
-      --volume "$HOME/.agents/skills:/home/node/.agents/skills:ro"
-    )
-  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -179,6 +159,21 @@ build_image() {
 # Run
 # ---------------------------------------------------------------------------
 
+# Add read-only mounts of host files that are shared with every sandbox, when
+# they exist, to sandbox_run_opts.
+add_host_mounts() {
+  if [[ -f "$HOME/.bunfig.toml" ]]; then
+    sandbox_run_opts+=(
+      --volume "$HOME/.bunfig.toml:/home/node/.bunfig.toml:ro"
+    )
+  fi
+  if [[ -d "$HOME/.agents/skills" ]]; then
+    sandbox_run_opts+=(
+      --volume "$HOME/.agents/skills:/home/node/.agents/skills:ro"
+    )
+  fi
+}
+
 # Add the host's global Git name and email to sandbox_run_opts. Only the
 # identity is passed in, not ~/.gitconfig, because that file can hold credential
 # helpers or include other host files. The project's own .git/config is still
@@ -215,9 +210,9 @@ run_sandbox() {
   # A colon or comma would make the --volume spec ambiguous. Patterns on the
   # right of == and != stay unquoted so they glob-match.
   [[ "$project_dir" != *:* && "$project_dir" != *,* ]] || die 'project path must not contain a colon or comma'
-  [[ "$project_dir" != / ]] || die 'refusing to expose the entire host root as a workspace'
-  # Only mount a directory that is strictly inside the projects tree. Only the
-  # trailing * is unquoted, so it matches any subpath.
+  # Only mount a directory that is strictly inside the projects tree, which
+  # also rules out /. Only the trailing * is unquoted, so it matches any
+  # subpath.
   [[ "$project_dir" == /home/grant/Projects/* ]] || die 'refusing to start: current directory is not under /home/grant/Projects'
 
   if ! podman image exists "$sandbox_image"; then
@@ -241,6 +236,7 @@ run_sandbox() {
     --memory "${sandbox_memory_mib}m"
     --workdir "$project_dir"
     --volume "$project_dir:$project_dir"
+    --env "TERM=${TERM:-xterm-256color}"
   )
 
   # Request a TTY only when stdin and stdout are both terminals. Interactive
@@ -259,6 +255,7 @@ run_sandbox() {
     )
   fi
 
+  add_host_mounts
   add_git_identity_env
 
   exec podman run "${run_args[@]}" "${sandbox_run_opts[@]}" "$sandbox_image" "${sandbox_agent_args[@]}" "$@"
@@ -269,12 +266,30 @@ run_sandbox() {
 # ---------------------------------------------------------------------------
 
 cmd_list() {
-  if (($# > 0)) && is_help_flag "$1"; then
-    usage
-    return
-  fi
   (($# == 0)) || die 'list does not take arguments'
   list_sandboxes
+}
+
+# sbx run <name> [-- AGENT_ARGS...]
+cmd_run() {
+  (($# > 0)) || die 'run requires a sandbox name (see sbx --help)'
+  local sandbox_name="$1"
+  shift
+  if (($# > 0)); then
+    [[ "$1" == -- ]] || die "unexpected argument '$1' (put agent arguments after --)"
+    shift
+  fi
+
+  require_podman
+  load_sandbox "$sandbox_name"
+  run_sandbox "$@"
+}
+
+# sbx update <name|all>
+cmd_update() {
+  (($# == 1)) || die 'update requires exactly one sandbox name or "all" (see sbx --help)'
+  require_podman
+  update_sandboxes "$1"
 }
 
 # Rebuild the image for sandbox $1, or for every sandbox when $1 is "all".
@@ -295,60 +310,29 @@ update_sandboxes() {
   done
 }
 
-# Shared parser for `run` and `update`:
-#   <subcommand> <name> [-h|--help] [-- AGENT_ARGS...]
-# Only `run` accepts agent arguments after --. For `update`, <name> may be
-# "all". The sandbox is loaded after parsing, so "all" never reaches
-# load_sandbox.
-cmd_run_or_update() {
-  local subcommand="$1" sandbox_name
-  shift
-
-  if (($# > 0)) && is_help_flag "$1"; then
-    usage
-    return
-  fi
-  (($# > 0)) || die "$subcommand requires a sandbox name (see sbx --help)"
-  sandbox_name="$1"
-  shift
-
-  while (($# > 0)); do
-    case "$1" in
-    -h | --help)
-      usage
-      return
-      ;;
-    --)
-      [[ "$subcommand" == "run" ]] || die "$subcommand does not accept agent arguments"
-      shift
-      break
-      ;;
-    *) die "unexpected argument '$1' (put agent arguments after --)" ;;
-    esac
-  done
-
-  require_podman
-  case "$subcommand" in
-  run)
-    load_sandbox "$sandbox_name"
-    run_sandbox "$@"
-    ;;
-  update) update_sandboxes "$sandbox_name" ;;
-  esac
-}
-
 main() {
+  local arg subcommand
+
   if (($# == 0)); then
     usage >&2
     exit 1
   fi
 
-  local subcommand="$1"
+  # -h or --help anywhere before -- shows help; later ones belong to the agent.
+  for arg in "$@"; do
+    [[ "$arg" != -- ]] || break
+    if [[ "$arg" == -h || "$arg" == --help ]]; then
+      usage
+      return
+    fi
+  done
+
+  subcommand="$1"
   shift
   case "$subcommand" in
-  -h | --help) usage ;;
   list) cmd_list "$@" ;;
-  run | update) cmd_run_or_update "$subcommand" "$@" ;;
+  run) cmd_run "$@" ;;
+  update) cmd_update "$@" ;;
   *) die "unknown command '$subcommand' (see sbx --help)" ;;
   esac
 }

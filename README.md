@@ -20,8 +20,9 @@ sbx --help
 ```
 
 The script follows symlinks to find `base/` and `sandboxes/`. Keep them
-together; install a symlink rather than copying the script elsewhere. Run from the project
-you want the agent to edit. Agent flags and prompts must follow `--`.
+together; install a symlink rather than copying the script elsewhere. Run from
+the project you want the agent to edit. Agent flags and prompts must follow `--`; `-h`/`--help` before `--` shows
+`sbx` help.
 
 ## Images and updates
 
@@ -40,8 +41,10 @@ its version command fails or returns empty output, that runtime uses its
 default in `base/Dockerfile`. Run `sbx update <name>` (or `sbx update all`) to
 pick up host version changes in an existing image. The shared base includes
 Node.js, npm, Bun/bunx, Bash, CA certificates, fd-find, Git, jq, Python 3, ripgrep,
-ShellCheck, and shfmt. All final images run as the non-root `node` user. Claude and Cursor Agent install in separate build
-stages; Cursor Agent ships its own Node binary under `/opt/cursor-agent`.
+ShellCheck, and shfmt. All final images run as the non-root `node` user.
+Claude and Cursor Agent install in separate build stages based on the shared
+`installer` stage (Debian with curl); Cursor Agent ships its own Node binary
+under `/opt/cursor-agent`.
 
 ## Runtime security and writable storage
 
@@ -50,7 +53,8 @@ Every run uses:
 - All Linux capabilities dropped and `no-new-privileges` enabled.
 - A read-only root filesystem, with automatic Podman tmpfs mounts disabled.
 - A 512 MiB ephemeral `/tmp` with `noexec,nosuid,nodev`.
-- Limits of **4 CPUs**, **8192m RAM**, **2048 processes**, and no additional swap.
+- Limits of **4 CPUs**, **8192m RAM**, and **2048 processes**. Swap is left at
+  Podman's default.
   Defaults live in `load_sandbox` (`sandbox_cpus`, `sandbox_memory_mib`); a
   sandbox's `sandbox.sh` can override them.
 - A private user namespace (`keep-id`) mapping your UID/GID to container user
@@ -68,8 +72,9 @@ your home or a directory containing unrelated secrets. Host `/` is rejected, and
 the directory must be a subdirectory of `/home/grant/Projects` (that directory
 itself is not enough). Paths containing `:` or `,` are rejected to avoid
 ambiguous mount syntax.
-If `~/.bunfig.toml` exists, it is mounted read-only into the container.
-If `~/.agents/skills` exists, it is mounted read-only at the same path.
+If `~/.bunfig.toml` exists, it is mounted read-only at `/home/node/.bunfig.toml`.
+If `~/.agents/skills` exists, it is mounted read-only at
+`/home/node/.agents/skills`.
 
 Agent state persists in named volumes (`:U` so ownership matches the container
 user):
@@ -82,8 +87,7 @@ user):
 These writable volumes hold authentication, config, sessions, and caches. The
 claude sandbox sets `CLAUDE_CODE_SKIP_PROMPT_HISTORY=1`, so Claude Code does not
 save session transcripts or prompt history (`--resume`/`--continue` have nothing
-to load). Log
-in through the agent inside the sandbox. Host environment variables (including
+to load). Log in through the agent inside the sandbox. Host environment variables (including
 API keys), SSH keys, cloud credentials, sockets, and dotfiles are not forwarded.
 
 Cursor Agent has no named volume. `CURSOR_API_KEY` is injected from the Podman
@@ -113,8 +117,10 @@ baseline; prefer changing only what you need.
 
 To add an agent, create `sandboxes/<name>/` (names are lowercase letters,
 digits, `-`, `_`) with a `sandbox.sh` and a `Dockerfile` whose last stage is
-`FROM base`. Declare `ARG CACHE_BUST=1` just before the agent install step so
-`update` reinstalls it. Don't reuse the stage names `bun` or `base`. `sbx list`
+`FROM base`. For a `curl | bash` installer, use a separate stage
+`FROM installer` and copy the result into the final stage. Declare
+`ARG CACHE_BUST=1` just before the agent install step so `update` reinstalls
+it. Don't reuse the stage names `bun`, `installer`, or `base`. `sbx list`
 and help output discover sandboxes from that directory. To change shared tools,
 edit `base/Dockerfile` and update each affected sandbox.
 

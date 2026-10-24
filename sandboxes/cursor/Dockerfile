@@ -3,12 +3,7 @@
 # ---------------------------------------------------------------------------
 # Installer
 # ---------------------------------------------------------------------------
-FROM docker.io/library/debian:trixie-slim AS cursor-installer
-
-# Install what the installer script needs.
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends bash ca-certificates curl \
-  && rm -rf /var/lib/apt/lists/*
+FROM installer AS cursor-installer
 
 # `sbx update` changes CACHE_BUST, so everything below reruns.
 ARG CACHE_BUST=1
@@ -28,9 +23,7 @@ COPY --from=cursor-installer /opt/cursor-agent /opt/cursor-agent
 
 # Expose it as both `agent` and `cursor-agent` (linking into /usr/local/bin
 # needs root).
-USER root
 RUN ln -sf /opt/cursor-agent/cursor-agent /usr/local/bin/agent \
   && ln -sf /opt/cursor-agent/cursor-agent /usr/local/bin/cursor-agent
-USER node
 
 ENTRYPOINT ["agent"]

@@ -3,12 +3,7 @@
 # ---------------------------------------------------------------------------
 # Installer
 # ---------------------------------------------------------------------------
-FROM docker.io/library/debian:trixie-slim AS claude-installer
-
-# Install what the installer script needs.
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends bash ca-certificates curl \
-  && rm -rf /var/lib/apt/lists/*
+FROM installer AS claude-installer
 
 # `sbx update` changes CACHE_BUST, so everything below reruns.
 ARG CACHE_BUST=1
