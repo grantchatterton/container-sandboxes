@@ -79,7 +79,10 @@ user):
 | claude | `claude-home` | `/home/node/.claude` |
 | pi | `pi-agent-home` | `/home/node/.pi/agent` |
 
-These writable volumes hold authentication, config, sessions, and caches. Log
+These writable volumes hold authentication, config, sessions, and caches. The
+claude sandbox sets `CLAUDE_CODE_SKIP_PROMPT_HISTORY=1`, so Claude Code does not
+save session transcripts or prompt history (`--resume`/`--continue` have nothing
+to load). Log
 in through the agent inside the sandbox. Host environment variables (including
 API keys), SSH keys, cloud credentials, sockets, and dotfiles are not forwarded.
 
