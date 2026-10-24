@@ -1,0 +1,312 @@
+#!/usr/bin/env bash
+# sbx: build and run coding-agent sandboxes using rootless Podman.
+# Install via symlink: the Dockerfile is always resolved beside this script.
+set -euo pipefail
+
+SCRIPT_DIR="$(dirname -- "$(realpath -- "${BASH_SOURCE[0]}")")"
+DOCKERFILE_PATH="$SCRIPT_DIR/Dockerfile"
+SANDBOXES=(claude codex pi)
+
+usage() {
+  cat <<'EOF'
+Usage: sbx <command> [options]
+
+Commands:
+  run <name> [-- AGENT_ARGS...]
+                Run an agent in the current directory; build if missing
+  update <name> Rebuild an image, refreshing base images and the agent
+  list          List supported sandboxes
+
+Sandboxes: claude, codex, pi
+
+Run options:
+  --            Pass all following arguments directly to the agent
+  -h, --help    Show help (also available after any command)
+
+Examples:
+  sbx run pi
+  sbx run claude -- 'explain this project'
+  sbx run codex -- exec 'fix the tests'
+  sbx update claude
+
+The current directory is mounted read-write at the same path inside the
+container. Agent home directories live in named Podman volumes. The root
+filesystem is read-only; /tmp is ephemeral. Network access is enabled for
+model APIs and package downloads. Only Git identity is forwarded from the
+host, not your entire environment.
+EOF
+}
+
+die() {
+  printf 'sbx: %s\n' "$*" >&2
+  exit 1
+}
+
+is_help_flag() {
+  [[ "$1" == -h || "$1" == --help ]]
+}
+
+require_podman() {
+  command -v podman >/dev/null 2>&1 || die 'podman is required but was not found in PATH'
+}
+
+# ---------------------------------------------------------------------------
+# Sandbox definitions
+# ---------------------------------------------------------------------------
+
+# Set the sandbox_* globals describing sandbox $1. Each sandbox matches a final
+# target in the Dockerfile. Arrays keep values with spaces intact and avoid
+# passing user input through eval or the shell.
+#
+#   sandbox_image        image tag to build and run
+#   sandbox_target       Dockerfile build target
+#   sandbox_cpus         CPU limit
+#   sandbox_memory_mib   memory limit in MiB
+#   sandbox_home_volume  named volume for the agent's home dir (VOLUME:PATH)
+#   sandbox_env          NAME=VALUE pairs passed to the container
+#   sandbox_volumes      additional --volume specs
+#   sandbox_agent_args   default arguments passed to the agent
+#   sandbox_build_opts   additional `podman build` options
+#   sandbox_run_opts     additional `podman run` options
+load_sandbox() {
+  local sandbox_name="$1"
+
+  sandbox_image="localhost/${sandbox_name}-sandbox:latest"
+  sandbox_target="$sandbox_name"
+  sandbox_cpus=4
+  sandbox_memory_mib=8192
+  sandbox_env=(
+    TERM="${TERM:-xterm-256color}"
+  )
+  sandbox_volumes=()
+  sandbox_agent_args=()
+  sandbox_build_opts=()
+  sandbox_run_opts=()
+
+  case "$sandbox_name" in
+  claude)
+    sandbox_home_volume="claude-home:/home/node/.claude"
+    sandbox_env+=(
+      DISABLE_AUTOUPDATER=1
+      CLAUDE_CONFIG_DIR="/home/node/.claude"
+    )
+    ;;
+  codex)
+    sandbox_home_volume="codex-home:/home/node/.codex"
+    ;;
+  pi)
+    sandbox_home_volume="pi-agent-home:/home/node/.pi/agent"
+    sandbox_env+=(
+      PI_OFFLINE=1
+      PI_TELEMETRY=0
+    )
+    sandbox_agent_args+=(
+      --no-session
+    )
+    ;;
+  *) die "unknown sandbox '$sandbox_name' (choose: ${SANDBOXES[*]})" ;;
+  esac
+
+  # If $HOME/.bunfig.toml exists, add it to the sandbox volumes.
+  if [[ -f "$HOME/.bunfig.toml" ]]; then
+    sandbox_volumes+=(
+      "$HOME/.bunfig.toml:/home/node/.bunfig.toml:ro"
+    )
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Build
+# ---------------------------------------------------------------------------
+
+# Build the loaded sandbox's image. Pass "cached" for a normal build, or
+# "refresh" to pull base images and reinstall the agent.
+#
+# The build context is an EMPTY temporary directory, never the user's project
+# or this checkout, so source code and secrets can't reach the builder. The
+# Dockerfile comes in on stdin. The function body runs in a subshell to scope
+# the EXIT trap, so the context is removed even when the build fails.
+build_image() {
+  local build_mode="$1" context_dir
+  local -a build_args=(--file - --target "$sandbox_target" --tag "$sandbox_image")
+
+  [[ -r "$DOCKERFILE_PATH" ]] || die "cannot read $DOCKERFILE_PATH"
+
+  case "$build_mode" in
+  cached) ;;
+  refresh)
+    # CACHE_BUST is declared in the agent install stages, so the shared base
+    # stays cacheable while npm / the Claude installer fetch a new agent.
+    build_args+=(--pull=always --build-arg "CACHE_BUST=$(date +%s%N)")
+    ;;
+  *) die "internal error: unknown build mode '$build_mode'" ;;
+  esac
+
+  context_dir="$(mktemp -d)"
+  trap 'rm -rf -- "$context_dir"' EXIT
+
+  printf 'sbx: building %s\n' "$sandbox_image" >&2
+  podman build "${build_args[@]}" "${sandbox_build_opts[@]}" "$context_dir" <"$DOCKERFILE_PATH"
+}
+
+# ---------------------------------------------------------------------------
+# Run
+# ---------------------------------------------------------------------------
+
+# Add the host's global Git name and email to sandbox_env. Only the identity is
+# passed in, not ~/.gitconfig, because that file can hold credential helpers or
+# include other host files. The project's own .git/config is still visible.
+add_git_identity_env() {
+  local git_name git_email
+  command -v git >/dev/null 2>&1 || return 0
+
+  git_name="$(git config --global user.name 2>/dev/null || true)"
+  if [[ -n "$git_name" ]]; then
+    sandbox_env+=(
+      GIT_AUTHOR_NAME="$git_name"
+      GIT_COMMITTER_NAME="$git_name"
+    )
+  fi
+
+  git_email="$(git config --global user.email 2>/dev/null || true)"
+  if [[ -n "$git_email" ]]; then
+    sandbox_env+=(
+      GIT_AUTHOR_EMAIL="$git_email"
+      GIT_COMMITTER_EMAIL="$git_email"
+    )
+  fi
+}
+
+# Run the loaded sandbox in the current directory, building its image first if
+# needed. Arguments go to the agent after its default sandbox_agent_args. This
+# replaces the shell process, so Podman returns the agent's exit status.
+run_sandbox() {
+  local project_dir env_var volume_spec
+  local -a run_args
+
+  project_dir="$(pwd -P)"
+  # A colon or comma would make the --volume spec ambiguous.
+  [[ "$project_dir" != *:* && "$project_dir" != *,* ]] || die 'project path must not contain a colon or comma'
+  [[ "$project_dir" != / ]] || die 'refusing to expose the entire host root as a workspace'
+
+  if ! podman image exists "$sandbox_image"; then
+    build_image cached
+  fi
+
+  # keep-id maps the host user to the image's node user (1000:1000), so files
+  # stay owned by the host user even when its UID is not 1000.
+  # Never add --privileged or host namespaces, or mount the Podman socket.
+  run_args=(
+    --rm
+    --interactive
+    --userns="keep-id:uid=1000,gid=1000"
+    --cap-drop=ALL
+    --security-opt=no-new-privileges
+    --read-only
+    --read-only-tmpfs=false
+    --tmpfs "/tmp:rw,noexec,nosuid,nodev,size=512m,mode=1777"
+    --pids-limit=512
+    --cpus "$sandbox_cpus"
+    --memory "${sandbox_memory_mib}m"
+    --workdir "$project_dir"
+    --volume "$project_dir:$project_dir"
+    --volume "$sandbox_home_volume:U"
+  )
+
+  # Request a TTY only when stdin and stdout are both terminals. Interactive
+  # use keeps colors and key handling, and pipes and CI still work.
+  if [[ -t 0 && -t 1 ]]; then
+    run_args+=(--tty)
+  fi
+
+  # Use the krun microVM runtime when it is installed. It needs its own resource
+  # annotations.
+  if command -v krun >/dev/null 2>&1; then
+    run_args+=(
+      --runtime=krun
+      --annotation=krun.cpus="$sandbox_cpus"
+      --annotation=krun.ram_mib="$sandbox_memory_mib"
+    )
+  fi
+
+  add_git_identity_env
+
+  for env_var in "${sandbox_env[@]}"; do
+    run_args+=(--env "$env_var")
+  done
+
+  for volume_spec in "${sandbox_volumes[@]}"; do
+    run_args+=(--volume "$volume_spec")
+  done
+
+  exec podman run "${run_args[@]}" "${sandbox_run_opts[@]}" "$sandbox_image" "${sandbox_agent_args[@]}" "$@"
+}
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+
+cmd_list() {
+  if (($# > 0)) && is_help_flag "$1"; then
+    usage
+    return
+  fi
+  (($# == 0)) || die 'list does not take arguments'
+  printf '%s\n' "${SANDBOXES[@]}"
+}
+
+# Shared parser for `run` and `update`:
+#   <subcommand> <name> [-h|--help] [-- AGENT_ARGS...]
+# Only `run` accepts agent arguments after --.
+cmd_run_or_update() {
+  local subcommand="$1" sandbox_name
+  shift
+
+  if (($# > 0)) && is_help_flag "$1"; then
+    usage
+    return
+  fi
+  (($# > 0)) || die "$subcommand requires a sandbox name (see sbx --help)"
+  sandbox_name="$1"
+  shift
+  load_sandbox "$sandbox_name"
+
+  while (($# > 0)); do
+    case "$1" in
+    -h | --help)
+      usage
+      return
+      ;;
+    --)
+      [[ "$subcommand" == "run" ]] || die "$subcommand does not accept agent arguments"
+      shift
+      break
+      ;;
+    *) die "unexpected argument '$1' (put agent arguments after --)" ;;
+    esac
+  done
+
+  require_podman
+  case "$subcommand" in
+  run) run_sandbox "$@" ;;
+  update) build_image refresh ;;
+  esac
+}
+
+main() {
+  if (($# == 0)); then
+    usage >&2
+    exit 1
+  fi
+
+  local subcommand="$1"
+  shift
+  case "$subcommand" in
+  -h | --help) usage ;;
+  list) cmd_list "$@" ;;
+  run | update) cmd_run_or_update "$subcommand" "$@" ;;
+  *) die "unknown command '$subcommand' (see sbx --help)" ;;
+  esac
+}
+
+main "$@"

@@ -1,0 +1,18 @@
+{
+  "[dockerfile]": {
+    "editor.formatOnSave": false
+  },
+  // Whitespace
+  "files.eol": "\n",
+  "files.insertFinalNewline": true,
+  "files.trimFinalNewlines": true,
+  "files.trimTrailingWhitespace": true,
+  // Editor
+  "editor.rulers": [100],
+  "editor.insertSpaces": true,
+  "editor.detectIndentation": false,
+  "editor.tabSize": 2,
+  "files.associations": {
+    "sbx": "shellscript"
+  }
+}
