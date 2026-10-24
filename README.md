@@ -28,8 +28,11 @@ layers using `CACHE_BUST`, leaving other layers cacheable. Neither operation
 erases persistent agent state. A running container keeps its existing image.
 
 Builds send the Dockerfile on stdin with an empty temporary build context, never
-your project. Node/Bun versions use the defaults in `Dockerfile`; edit those
-build arguments there to change them. The shared base includes Node.js, npm,
+your project. Builds pass the host's `node --version` and `bun --version` as
+`NODE_VERSION` and `BUN_VERSION` build arguments (stripping Node's leading `v`).
+If either runtime is unavailable or its version command fails or returns empty
+output, that runtime uses its default in `Dockerfile`. Run `sbx update <name>`
+to pick up host version changes in an existing image. The shared base includes Node.js, npm,
 Bun/bunx, Bash, CA certificates, fd-find, Git, and ripgrep. All final images run
 as the non-root `node` user. Claude's installer runs in a separate build stage.
 

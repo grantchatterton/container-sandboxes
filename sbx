@@ -127,16 +127,24 @@ load_sandbox() {
 # Dockerfile comes in on stdin. The function body runs in a subshell to scope
 # the EXIT trap, so the context is removed even when the build fails.
 build_image() {
-  local build_mode="$1" context_dir
+  local build_mode="$1" context_dir node_version bun_version
   local -a build_args=(--file - --target "$sandbox_target" --tag "$sandbox_image")
 
   [[ -r "$DOCKERFILE_PATH" ]] || die "cannot read $DOCKERFILE_PATH"
+
+  # Match host runtimes when available; otherwise keep the Dockerfile defaults.
+  if command -v node >/dev/null 2>&1 && node_version="$(node --version 2>/dev/null)" && [[ -n "$node_version" ]]; then
+    build_args+=(--build-arg "NODE_VERSION=${node_version#v}")
+  fi
+  if command -v bun >/dev/null 2>&1 && bun_version="$(bun --version 2>/dev/null)" && [[ -n "$bun_version" ]]; then
+    build_args+=(--build-arg "BUN_VERSION=$bun_version")
+  fi
 
   case "$build_mode" in
   cached) ;;
   refresh)
     # CACHE_BUST is declared in the agent install stages, so the shared base
-    # stays cacheable while npm / the Claude installer fetch a new agent.
+    # stays cacheable while npm or an installer fetches a new agent.
     build_args+=(--pull=always --build-arg "CACHE_BUST=$(date +%s%N)")
     ;;
   *) die "internal error: unknown build mode '$build_mode'" ;;
