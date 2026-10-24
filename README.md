@@ -85,7 +85,7 @@ volume, e.g. `podman volume rm pi-agent-home` (destructive).
 ## Customization and checks
 
 `load_sandbox` defines each image/target, home volume, CPU/memory limits, and
-optional `sandbox_env`, `sandbox_volumes`, `sandbox_agent_args`,
+optional `sandbox_env`, `sandbox_volumes`, `sandbox_mounts`, `sandbox_tmpfs`, `sandbox_agent_args`,
 `sandbox_build_opts`, and `sandbox_run_opts` arrays. Keep arguments as array
 elements, not shell snippets. Raw options can weaken the security baseline;
 prefer changing only what you need. To add an agent, add its final Dockerfile

@@ -62,9 +62,12 @@ require_podman() {
 #   sandbox_target       Dockerfile build target
 #   sandbox_cpus         CPU limit
 #   sandbox_memory_mib   memory limit in MiB
-#   sandbox_home_volume  named volume for the agent's home dir (VOLUME:PATH)
+#   sandbox_home_volume  named volume for the agent's home dir (VOLUME:PATH),
+#                        or empty when the sandbox has no persistent home
 #   sandbox_env          NAME=VALUE pairs passed to the container
 #   sandbox_volumes      additional --volume specs
+#   sandbox_mounts       additional --mount specs, applied before sandbox_volumes
+#   sandbox_tmpfs        additional --tmpfs specs for writable dirs
 #   sandbox_agent_args   default arguments passed to the agent
 #   sandbox_build_opts   additional `podman build` options
 #   sandbox_run_opts     additional `podman run` options
@@ -79,6 +82,8 @@ load_sandbox() {
     TERM="${TERM:-xterm-256color}"
   )
   sandbox_volumes=()
+  sandbox_mounts=()
+  sandbox_tmpfs=()
   sandbox_agent_args=()
   sandbox_build_opts=()
   sandbox_run_opts=()
@@ -189,7 +194,7 @@ add_git_identity_env() {
 # needed. Arguments go to the agent after its default sandbox_agent_args. This
 # replaces the shell process, so Podman returns the agent's exit status.
 run_sandbox() {
-  local project_dir env_var volume_spec
+  local project_dir env_var mount_spec volume_spec tmpfs_spec
   local -a run_args
 
   project_dir="$(pwd -P)"
@@ -218,8 +223,11 @@ run_sandbox() {
     --memory "${sandbox_memory_mib}m"
     --workdir "$project_dir"
     --volume "$project_dir:$project_dir"
-    --volume "$sandbox_home_volume:U"
   )
+
+  if [[ -n "$sandbox_home_volume" ]]; then
+    run_args+=(--volume "$sandbox_home_volume:U")
+  fi
 
   # Request a TTY only when stdin and stdout are both terminals. Interactive
   # use keeps colors and key handling, and pipes and CI still work.
@@ -243,8 +251,16 @@ run_sandbox() {
     run_args+=(--env "$env_var")
   done
 
+  for mount_spec in "${sandbox_mounts[@]}"; do
+    run_args+=(--mount "$mount_spec")
+  done
+
   for volume_spec in "${sandbox_volumes[@]}"; do
     run_args+=(--volume "$volume_spec")
+  done
+
+  for tmpfs_spec in "${sandbox_tmpfs[@]}"; do
+    run_args+=(--tmpfs "$tmpfs_spec")
   done
 
   exec podman run "${run_args[@]}" "${sandbox_run_opts[@]}" "$sandbox_image" "${sandbox_agent_args[@]}" "$@"
