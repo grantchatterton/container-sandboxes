@@ -5,7 +5,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(dirname -- "$(realpath -- "${BASH_SOURCE[0]}")")"
 DOCKERFILE_PATH="$SCRIPT_DIR/Dockerfile"
-SANDBOXES=(claude codex pi)
+SANDBOXES=(claude codex pi cursor)
 
 usage() {
   cat <<'EOF'
@@ -17,7 +17,7 @@ Commands:
   update <name> Rebuild an image, refreshing base images and the agent
   list          List supported sandboxes
 
-Sandboxes: claude, codex, pi
+Sandboxes: claude, codex, pi, cursor
 
 Run options:
   --            Pass all following arguments directly to the agent
@@ -27,6 +27,7 @@ Examples:
   sbx run pi
   sbx run claude -- 'explain this project'
   sbx run codex -- exec 'fix the tests'
+  sbx run cursor -- 'explain this project'
   sbx update claude
 
 The current directory is mounted read-write at the same path inside the
@@ -107,6 +108,20 @@ load_sandbox() {
     )
     sandbox_agent_args+=(
       --no-session
+    )
+    ;;
+  cursor)
+    sandbox_home_volume=""
+    sandbox_mounts+=(
+      "type=tmpfs,destination=/home/node/.config,tmpfs-mode=1700,U"
+      "type=tmpfs,destination=/home/node/.cursor,tmpfs-mode=1700,U"
+    )
+    sandbox_run_opts+=(
+      --secret "cursor_api_key,type=env,target=CURSOR_API_KEY"
+    )
+    sandbox_agent_args+=(
+      --auto-review
+      --trust
     )
     ;;
   *) die "unknown sandbox '$sandbox_name' (choose: ${SANDBOXES[*]})" ;;

@@ -1,16 +1,18 @@
 # container-sandboxes
 
 `sbx` builds and runs hardened Podman containers for Claude Code, Codex CLI,
-and Pi. Each sandbox corresponds to a final target in the shared `Dockerfile`.
+Cursor Agent, and Pi. Each sandbox corresponds to a final target in the shared
+`Dockerfile`.
 Requires Linux, Bash 4.4+, Podman (preferably rootless), and `realpath`.
 CPU/memory enforcement requires working cgroup delegation (normally cgroups v2).
 If `krun` is on `PATH`, runs use the krun microVM runtime.
 
 ```sh
 ln -sf "$PWD/sbx" ~/.local/bin/sbx   # install from this checkout
-sbx list                           # claude, codex, pi
+sbx list                           # claude, codex, pi, cursor
 sbx run pi                         # cwd mounted at the same path
 sbx run codex -- exec 'fix the tests'
+sbx run cursor -- 'explain this project'
 sbx run claude -- 'explain this project'
 sbx update claude                  # refresh base images and installed agent
 sbx --help
@@ -34,7 +36,8 @@ If either runtime is unavailable or its version command fails or returns empty
 output, that runtime uses its default in `Dockerfile`. Run `sbx update <name>`
 to pick up host version changes in an existing image. The shared base includes Node.js, npm,
 Bun/bunx, Bash, CA certificates, fd-find, Git, and ripgrep. All final images run
-as the non-root `node` user. Claude's installer runs in a separate build stage.
+as the non-root `node` user. Claude and Cursor Agent install in separate build
+stages; Cursor Agent ships its own Node binary under `/opt/cursor-agent`.
 
 ## Runtime security and writable storage
 
@@ -73,6 +76,12 @@ user):
 These writable volumes hold authentication, config, sessions, and caches. Log
 in through the agent inside the sandbox. Host environment variables (including
 API keys), SSH keys, cloud credentials, sockets, and dotfiles are not forwarded.
+
+Cursor Agent has no named volume. `CURSOR_API_KEY` is injected from the Podman
+secret `cursor_api_key` (`--secret cursor_api_key,type=env,target=CURSOR_API_KEY`).
+Create it with `podman secret create cursor_api_key` (the file or stdin is the
+key). Its writable state lives on an anonymous volume at `/home/node` (`chown`
+so the `node` user owns it) and is removed when the container exits.
 Git name/email are forwarded if configured; the host `.gitconfig` is not
 mounted. Projects can still contain their own secrets or Git configuration, so
 inspect untrusted repositories before running an agent. Read-only root does not
