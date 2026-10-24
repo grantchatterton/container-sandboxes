@@ -167,7 +167,7 @@ build_image() {
     trap 'rm -rf -- "$context_dir"' EXIT
 
     printf 'sbx: building %s\n' "$sandbox_image" >&2
-    podman build "${build_args[@]}" "${sandbox_build_opts[@]}" "$context_dir" <"$DOCKERFILE_PATH"
+    podman build --jobs=4 "${build_args[@]}" "${sandbox_build_opts[@]}" "$context_dir" <"$DOCKERFILE_PATH"
   )
 }
 
