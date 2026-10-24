@@ -151,10 +151,10 @@ load_sandbox() {
 #
 # The build context is an EMPTY temporary directory, never the user's project
 # or this checkout, so source code and secrets can't reach the builder. The
-# Dockerfile comes in on stdin. The function body runs in a subshell to scope
-# the EXIT trap, so the context is removed even when the build fails.
+# Dockerfile comes in on stdin. The build runs in a subshell to scope the EXIT
+# trap, so the context is removed even when the build fails.
 build_image() {
-  local build_mode="$1" context_dir node_version bun_version
+  local build_mode="$1" node_version bun_version
   local -a build_args=(--file - --target "$sandbox_target" --tag "$sandbox_image")
 
   [[ -r "$DOCKERFILE_PATH" ]] || die "cannot read $DOCKERFILE_PATH"
@@ -177,11 +177,13 @@ build_image() {
   *) die "internal error: unknown build mode '$build_mode'" ;;
   esac
 
-  context_dir="$(mktemp -d)"
-  trap 'rm -rf -- "$context_dir"' EXIT
+  (
+    context_dir="$(mktemp -d)"
+    trap 'rm -rf -- "$context_dir"' EXIT
 
-  printf 'sbx: building %s\n' "$sandbox_image" >&2
-  podman build "${build_args[@]}" "${sandbox_build_opts[@]}" "$context_dir" <"$DOCKERFILE_PATH"
+    printf 'sbx: building %s\n' "$sandbox_image" >&2
+    podman build "${build_args[@]}" "${sandbox_build_opts[@]}" "$context_dir" <"$DOCKERFILE_PATH"
+  )
 }
 
 # ---------------------------------------------------------------------------
