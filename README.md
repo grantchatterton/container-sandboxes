@@ -39,7 +39,7 @@ arguments (stripping Node's leading `v`). If either runtime is unavailable or
 its version command fails or returns empty output, that runtime uses its
 default in `base/Dockerfile`. Run `sbx update <name>` (or `sbx update all`) to
 pick up host version changes in an existing image. The shared base includes
-Node.js, npm, Bun/bunx, Bash, CA certificates, fd-find, Git, jq, ripgrep,
+Node.js, npm, Bun/bunx, Bash, CA certificates, fd-find, Git, jq, Python 3, ripgrep,
 ShellCheck, and shfmt. All final images run as the non-root `node` user. Claude and Cursor Agent install in separate build
 stages; Cursor Agent ships its own Node binary under `/opt/cursor-agent`.
 
