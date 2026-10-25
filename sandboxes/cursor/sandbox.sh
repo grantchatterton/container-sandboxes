@@ -6,6 +6,7 @@ sandbox_run_opts+=(
   --tmpfs "/home/node/.cursor:rw,noexec,nosuid,nodev,size=512m,mode=0700,U"
   --secret "cursor_api_key,type=env,target=CURSOR_API_KEY"
 )
+
 sandbox_agent_args+=(
   --trust
   --yolo
