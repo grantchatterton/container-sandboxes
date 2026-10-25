@@ -105,6 +105,8 @@ save session transcripts or prompt history (`--resume`/`--continue` have nothing
 to load). Log in through the agent inside the sandbox. Host environment variables (including
 API keys), SSH keys, cloud credentials, sockets, and dotfiles are not forwarded.
 
+Pi does not receive the Cursor API key or mount Cursor storage.
+
 Cursor Agent has no named volume. `CURSOR_API_KEY` is injected from the Podman
 secret `cursor_api_key` (`--secret cursor_api_key,type=env,target=CURSOR_API_KEY`).
 Create it with `podman secret create cursor_api_key` (the file or stdin is the
