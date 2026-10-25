@@ -28,8 +28,8 @@ EOF
   cat <<'EOF'
 Run options:
   --empty       Use a disposable /workspace instead of mounting the current directory
-  --cpus N      CPU limit (default 4; overrides sandbox.sh)
-  --memory MIB  Memory limit in MiB (default 8192; overrides sandbox.sh)
+  --cpus N      CPU limit (default 8; overrides sandbox.sh)
+  --memory MIB  Memory limit in MiB (default 16384; overrides sandbox.sh)
   --            Pass all following arguments directly to the agent
   -h, --help    Show help (also available after any command)
 
@@ -103,8 +103,8 @@ load_sandbox() {
   sandbox_empty_workspace="${2:-false}"
   sandbox_image="localhost/${sandbox_name}-sandbox:latest"
   sandbox_dockerfile="$SANDBOXES_DIR/$sandbox_name/Dockerfile"
-  sandbox_cpus=4
-  sandbox_memory_mib=8192
+  sandbox_cpus=8
+  sandbox_memory_mib=16384
   sandbox_agent_args=()
   sandbox_build_opts=()
   sandbox_run_opts=()
