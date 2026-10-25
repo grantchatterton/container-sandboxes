@@ -56,7 +56,7 @@ Every run uses:
 - All Linux capabilities dropped and `no-new-privileges` enabled.
 - A read-only root filesystem, with automatic Podman tmpfs mounts disabled.
 - A 512 MiB ephemeral `/tmp` with `nosuid,nodev`.
-- Limits of **4 CPUs**, **8192 MiB RAM**, and **2048 processes**. Swap is left at
+- Limits of **8 CPUs**, **16384 MiB RAM**, and **2048 processes**. Swap is left at
   Podman's default.
   Defaults live in `load_sandbox` (`sandbox_cpus`, `sandbox_memory_mib`); a
   sandbox's `sandbox.sh` can override them. `sbx run --cpus N` and
@@ -98,7 +98,7 @@ user):
 | pi | `pi-agent-home` | `/home/node/.pi/agent` |
 
 These writable volumes hold authentication, config, sessions, and caches. The
-claude and pi sandboxes also mount a 512 MiB tmpfs at `/home/node/.npm` so
+claude, pi, and cursor sandboxes also mount a 512 MiB tmpfs at `/home/node/.npm` so
 `npm` and `npx` have a writable cache; it is discarded on exit. The
 claude sandbox sets `CLAUDE_CODE_SKIP_PROMPT_HISTORY=1`, so Claude Code does not
 save session transcripts or prompt history (`--resume`/`--continue` have nothing
@@ -110,8 +110,8 @@ Pi does not receive the Cursor API key or mount Cursor storage.
 Cursor Agent has no named volume. `CURSOR_API_KEY` is injected from the Podman
 secret `cursor_api_key` (`--secret cursor_api_key,type=env,target=CURSOR_API_KEY`).
 Create it with `podman secret create cursor_api_key` (the file or stdin is the
-key). Its writable state lives on tmpfs mounts at `/home/node/.config/cursor`
-and `/home/node/.cursor` and is discarded when the container exits.
+key). Its writable state lives on tmpfs mounts at `/home/node/.config/cursor`,
+`/home/node/.cursor`, and `/home/node/.npm` and is discarded when the container exits.
 Git name/email are forwarded if configured; the host `.gitconfig` is not
 mounted. Projects can still contain their own secrets or Git configuration, so
 inspect untrusted repositories before running an agent. Read-only root does not
