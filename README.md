@@ -12,6 +12,7 @@ If `krun` is on `PATH`, runs use the krun microVM runtime.
 ln -sf "$PWD/sbx" ~/.local/bin/sbx   # install from this checkout
 sbx list                           # claude, cursor, pi
 sbx run pi                         # cwd mounted at the same path
+sbx run pi --cpus 2 --memory 4096  # override CPU and memory (MiB) limits
 sbx run pi --empty                 # disposable /workspace; no cwd mount
 sbx run cursor -- 'explain this project'
 sbx run claude -- 'explain this project'
@@ -22,8 +23,7 @@ sbx --help
 
 The script follows symlinks to find `base/` and `sandboxes/`. Keep them
 together; install a symlink rather than copying the script elsewhere. Run from
-the project you want the agent to edit. Agent flags and prompts must follow `--`; `-h`/`--help` before `--` shows
-`sbx` help.
+the project you want the agent to edit. `sbx` flags (`--empty`, `--cpus`, `--memory`) come before `--`; agent flags and prompts must follow `--`. `-h`/`--help` before `--` shows `sbx` help.
 
 ## Images and updates
 
@@ -56,10 +56,11 @@ Every run uses:
 - All Linux capabilities dropped and `no-new-privileges` enabled.
 - A read-only root filesystem, with automatic Podman tmpfs mounts disabled.
 - A 512 MiB ephemeral `/tmp` with `nosuid,nodev`.
-- Limits of **4 CPUs**, **8192m RAM**, and **2048 processes**. Swap is left at
+- Limits of **4 CPUs**, **8192 MiB RAM**, and **2048 processes**. Swap is left at
   Podman's default.
   Defaults live in `load_sandbox` (`sandbox_cpus`, `sandbox_memory_mib`); a
-  sandbox's `sandbox.sh` can override them.
+  sandbox's `sandbox.sh` can override them. `sbx run --cpus N` and
+  `--memory MIB` override both (also as `--cpus=N` and `--memory=MIB`).
 - A private user namespace (`keep-id`) mapping your UID/GID to container user
   1000:1000, so project files remain owned by you on the host.
 - Podman's default seccomp policy and network isolation (no host namespaces or

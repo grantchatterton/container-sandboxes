@@ -16,7 +16,7 @@ usage() {
 Usage: sbx <command> [options]
 
 Commands:
-  run <name> [--empty] [-- AGENT_ARGS...]
+  run <name> [--empty] [--cpus N] [--memory MIB] [-- AGENT_ARGS...]
                 Run an agent in the current directory; build if missing
   update <name|all>
                 Rebuild an image, refreshing base images and the agent.
@@ -28,6 +28,8 @@ EOF
   cat <<'EOF'
 Run options:
   --empty       Use a disposable /workspace instead of mounting the current directory
+  --cpus N      CPU limit (default 4; overrides sandbox.sh)
+  --memory MIB  Memory limit in MiB (default 8192; overrides sandbox.sh)
   --            Pass all following arguments directly to the agent
   -h, --help    Show help (also available after any command)
 
@@ -284,15 +286,35 @@ cmd_list() {
   list_sandboxes
 }
 
-# sbx run <name> [--empty] [-- AGENT_ARGS...]
+# sbx run <name> [--empty] [--cpus N] [--memory MIB] [-- AGENT_ARGS...]
 cmd_run() {
   (($# > 0)) || die 'run requires a sandbox name (see sbx --help)'
-  local sandbox_name="$1" empty_workspace=false
+  local sandbox_name="$1" empty_workspace=false cpus_override="" memory_override=""
   shift
   while (($# > 0)); do
     case "$1" in
     --empty)
       empty_workspace=true
+      shift
+      ;;
+    --cpus)
+      (($# > 1)) || die '--cpus requires a number'
+      shift
+      cpus_override="$1"
+      shift
+      ;;
+    --cpus=*)
+      cpus_override="${1#--cpus=}"
+      shift
+      ;;
+    --memory)
+      (($# > 1)) || die '--memory requires a size in MiB'
+      shift
+      memory_override="$1"
+      shift
+      ;;
+    --memory=*)
+      memory_override="${1#--memory=}"
       shift
       ;;
     --)
@@ -305,6 +327,17 @@ cmd_run() {
 
   require_podman
   load_sandbox "$sandbox_name" "$empty_workspace"
+  if [[ -n "$cpus_override" ]]; then
+    # Unquoted regex so =~ uses a pattern, not a literal string.
+    [[ "$cpus_override" =~ ^([0-9]+([.][0-9]*)?|[.][0-9]+)$ ]] || die "--cpus must be a positive number (got '$cpus_override')"
+    awk -v n="$cpus_override" 'BEGIN { exit !(n > 0) }' || die "--cpus must be a positive number (got '$cpus_override')"
+    sandbox_cpus="$cpus_override"
+  fi
+  if [[ -n "$memory_override" ]]; then
+    [[ "$memory_override" =~ ^[0-9]+$ ]] || die "--memory must be a positive integer in MiB (got '$memory_override')"
+    ((10#$memory_override > 0)) || die "--memory must be a positive integer in MiB (got '$memory_override')"
+    sandbox_memory_mib="$memory_override"
+  fi
   run_sandbox "$empty_workspace" "$@"
 }
 
