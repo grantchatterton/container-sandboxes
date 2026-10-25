@@ -5,7 +5,12 @@ sandbox_run_opts+=(
   --volume "pi-agent-home:/home/node/.pi/agent:U"
   --tmpfs "/home/node/.npm:rw,noexec,nosuid,nodev,size=512m,mode=0700,U"
 )
+
 sandbox_agent_args+=(
-  --no-session
   --append-system-prompt "$(cat -- "$SCRIPT_DIR/base/append-system-prompt.md")"
 )
+
+# shellcheck disable=SC2154
+if [[ "$sandbox_empty_workspace" == true ]]; then
+  sandbox_agent_args+=(--no-session)
+fi

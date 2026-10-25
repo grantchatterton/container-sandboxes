@@ -12,6 +12,7 @@ If `krun` is on `PATH`, runs use the krun microVM runtime.
 ln -sf "$PWD/sbx" ~/.local/bin/sbx   # install from this checkout
 sbx list                           # claude, cursor, pi
 sbx run pi                         # cwd mounted at the same path
+sbx run pi --empty                 # disposable /workspace; no cwd mount
 sbx run cursor -- 'explain this project'
 sbx run claude -- 'explain this project'
 sbx update claude                  # refresh base images and installed agent
@@ -74,6 +75,15 @@ your home or a directory containing unrelated secrets. Host `/` is rejected, and
 the directory must be a subdirectory of `/home/grant/Projects` (that directory
 itself is not enough). Paths containing `:` or `,` are rejected to avoid
 ambiguous mount syntax.
+
+Use `sbx run <name> --empty [-- AGENT_ARGS...]` to work in an empty `/workspace`
+instead, without mounting the current directory. This mode works from any host
+directory. The workspace is an anonymous Podman volume, writable by `node` and
+removed with the container on exit (`--rm`); copy out anything you want to keep
+before exiting. A disk-backed volume avoids consuming the container's RAM budget
+for project files. Pi also receives `--no-session` in this mode, disabling session
+saving. Other agent state and shared host mounts below remain unchanged.
+
 If `~/.bunfig.toml` exists, it is mounted read-only at `/home/node/.bunfig.toml`.
 If `~/.agents/skills` exists, it is mounted read-only at
 `/home/node/.agents/skills`.
@@ -118,6 +128,15 @@ mounts, tmpfs, secrets, and other `podman run` extras in `sandbox_run_opts`.
 Default agent flags go in `sandbox_agent_args` (for example Claude and Pi append
 `base/append-system-prompt.md`). `sandbox.sh` files should only set
 `sandbox_*` variables; keep arguments as array elements, not shell snippets.
+Scripts can read `sandbox_empty_workspace`: `true` when `run --empty` was used,
+`false` for normal runs and updates. Treat it as input only. For example:
+
+```bash
+if [[ "$sandbox_empty_workspace" == true ]]; then
+  sandbox_agent_args+=(--no-session)
+fi
+```
+
 Raw options can weaken the security baseline; prefer changing only what you
 need.
 

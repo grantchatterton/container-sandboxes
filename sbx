@@ -16,7 +16,7 @@ usage() {
 Usage: sbx <command> [options]
 
 Commands:
-  run <name> [-- AGENT_ARGS...]
+  run <name> [--empty] [-- AGENT_ARGS...]
                 Run an agent in the current directory; build if missing
   update <name|all>
                 Rebuild an image, refreshing base images and the agent.
@@ -27,18 +27,21 @@ EOF
   printf 'Sandboxes: %s\n\n' "${names[*]}"
   cat <<'EOF'
 Run options:
+  --empty       Use a disposable /workspace instead of mounting the current directory
   --            Pass all following arguments directly to the agent
   -h, --help    Show help (also available after any command)
 
 Examples:
   sbx run pi
+  sbx run pi --empty
   sbx run claude -- 'explain this project'
   sbx run cursor -- 'explain this project'
   sbx update claude
   sbx update all
 
 The current directory is mounted read-write at the same path inside the
-container. Agent state lives in named Podman volumes or tmpfs. The root
+container, unless --empty selects an anonymous volume at /workspace (removed
+on exit). Agent state lives in named Podman volumes or tmpfs. The root
 filesystem is read-only; /tmp is ephemeral. Network access is enabled for
 model APIs and package downloads. Only Git identity is forwarded from the
 host, not your entire environment.
@@ -67,10 +70,12 @@ list_sandboxes() {
   done
 }
 
-# Set the sandbox_* globals describing sandbox $1. Defaults are set here, then
+# Set the sandbox_* globals describing sandbox $1. Optional $2 selects empty
+# workspace mode (defaults to false, including for updates). Defaults are set here, then
 # sandboxes/<name>/sandbox.sh is sourced to adjust them. Arrays keep values with
 # spaces intact and avoid passing user input through eval or the shell.
 #
+#   sandbox_empty_workspace  whether --empty was used (true/false; input only)
 #   sandbox_image        image tag to build and run
 #   sandbox_dockerfile   Dockerfile appended to base/Dockerfile; its last stage
 #                        is the image
@@ -92,6 +97,8 @@ load_sandbox() {
     die "unknown sandbox '$sandbox_name' (choose: ${names[*]})"
   fi
 
+  # shellcheck disable=SC2034
+  sandbox_empty_workspace="${2:-false}"
   sandbox_image="localhost/${sandbox_name}-sandbox:latest"
   sandbox_dockerfile="$SANDBOXES_DIR/$sandbox_name/Dockerfile"
   sandbox_cpus=4
@@ -199,21 +206,29 @@ add_git_identity_env() {
   fi
 }
 
-# Run the loaded sandbox in the current directory, building its image first if
-# needed. Arguments go to the agent after its default sandbox_agent_args. This
+# Run the loaded sandbox in the current directory or an empty workspace,
+# building its image first if needed. The first argument selects empty mode;
+# remaining arguments go to the agent after sandbox_agent_args. This
 # replaces the shell process, so Podman returns the agent's exit status.
 run_sandbox() {
-  local project_dir
-  local -a run_args
+  local empty_workspace="$1" project_dir
+  local -a run_args workspace_args
+  shift
 
-  project_dir="$(pwd -P)"
-  # A colon or comma would make the --volume spec ambiguous. Patterns on the
-  # right of == and != stay unquoted so they glob-match.
-  [[ "$project_dir" != *:* && "$project_dir" != *,* ]] || die 'project path must not contain a colon or comma'
-  # Only mount a directory that is strictly inside the projects tree, which
-  # also rules out /. Only the trailing * is unquoted, so it matches any
-  # subpath.
-  [[ "$project_dir" == /home/grant/Projects/* ]] || die 'refusing to start: current directory is not under /home/grant/Projects'
+  if [[ "$empty_workspace" == true ]]; then
+    # Anonymous volumes use disk rather than container RAM. --rm removes the
+    # volume on exit; :U makes it writable by the container's node user.
+    workspace_args=(--workdir /workspace --volume /workspace)
+  else
+    project_dir="$(pwd -P)"
+    # A colon or comma would make the --volume spec ambiguous. Patterns on the
+    # right of == and != stay unquoted so they glob-match.
+    [[ "$project_dir" != *:* && "$project_dir" != *,* ]] || die 'project path must not contain a colon or comma'
+    # Only mount a directory strictly inside the projects tree, ruling out /.
+    # The trailing * is unquoted so it matches any subpath.
+    [[ "$project_dir" == /home/grant/Projects/* ]] || die 'refusing to start: current directory is not under /home/grant/Projects'
+    workspace_args=(--workdir "$project_dir" --volume "$project_dir:$project_dir")
+  fi
 
   if ! podman image exists "$sandbox_image"; then
     build_image cached
@@ -234,8 +249,7 @@ run_sandbox() {
     --pids-limit=2048
     --cpus "$sandbox_cpus"
     --memory "${sandbox_memory_mib}m"
-    --workdir "$project_dir"
-    --volume "$project_dir:$project_dir"
+    "${workspace_args[@]}"
     --env "TERM=${TERM:-xterm-256color}"
   )
 
@@ -270,19 +284,28 @@ cmd_list() {
   list_sandboxes
 }
 
-# sbx run <name> [-- AGENT_ARGS...]
+# sbx run <name> [--empty] [-- AGENT_ARGS...]
 cmd_run() {
   (($# > 0)) || die 'run requires a sandbox name (see sbx --help)'
-  local sandbox_name="$1"
+  local sandbox_name="$1" empty_workspace=false
   shift
-  if (($# > 0)); then
-    [[ "$1" == -- ]] || die "unexpected argument '$1' (put agent arguments after --)"
-    shift
-  fi
+  while (($# > 0)); do
+    case "$1" in
+    --empty)
+      empty_workspace=true
+      shift
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *) die "unexpected argument '$1' (put agent arguments after --)" ;;
+    esac
+  done
 
   require_podman
-  load_sandbox "$sandbox_name"
-  run_sandbox "$@"
+  load_sandbox "$sandbox_name" "$empty_workspace"
+  run_sandbox "$empty_workspace" "$@"
 }
 
 # sbx update <name|all>
