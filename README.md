@@ -57,7 +57,7 @@ Every run uses:
 - All Linux capabilities dropped and `no-new-privileges` enabled.
 - A read-only root filesystem, with automatic Podman tmpfs mounts disabled.
 - A 512 MiB ephemeral `/tmp` with `nosuid,nodev`.
-- Limits of **8 CPUs**, **16384 MiB RAM**, and **2048 processes**. Swap is left at
+- Limits of **4 CPUs**, **8192 MiB RAM**, and **2048 processes**. Swap is left at
   Podman's default.
   Defaults live in `load_sandbox` (`sandbox_cpus`, `sandbox_memory_mib`); a
   sandbox's `sandbox.sh` can override them. `sbx run --cpus N` and
