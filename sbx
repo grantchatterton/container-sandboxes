@@ -246,7 +246,6 @@ run_sandbox() {
     --cap-drop=ALL
     --security-opt=no-new-privileges
     --read-only
-    --read-only-tmpfs=false
     --tmpfs "/tmp:rw,nosuid,nodev,size=512m,mode=1777"
     --pids-limit=2048
     --cpus "$sandbox_cpus"
