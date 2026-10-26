@@ -42,7 +42,8 @@ its version command fails or returns empty output, that runtime uses its
 default in `base/Dockerfile`. Run `sbx update <name>` (or `sbx update all`) to
 pick up host version changes in an existing image. The shared base includes
 Node.js, npm, Bun/bunx, Bash, CA certificates, fd-find (`fdfind`), Git, jq, and
-ripgrep. All final images run as the non-root `node` user.
+ripgrep. Python 3 and ShellCheck are not installed by the shared base.
+All final images run as the non-root `node` user.
 Claude and Cursor Agent install in separate build stages based on the shared
 `installer` stage (Debian with curl); Cursor Agent ships its own Node binary
 under `/opt/cursor-agent`. Claude and Pi append `base/append-system-prompt.md`

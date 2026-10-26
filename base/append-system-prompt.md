@@ -6,9 +6,7 @@
 - bun, bunx
 - git
 - jq
-- python3
 - rg
-- shellcheck
 - fdfind
 
 ## Constraints

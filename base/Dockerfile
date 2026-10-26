@@ -31,7 +31,7 @@ FROM docker.io/library/node:${NODE_VERSION}-trixie-slim AS base
 
 # Install shared command-line tools.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends bash ca-certificates fd-find git jq python3 ripgrep shellcheck \
+  && apt-get install -y --no-install-recommends bash ca-certificates fd-find git jq ripgrep \
   && rm -rf /var/lib/apt/lists/*
 
 # Add Bun, with bunx as a symlink to it.
