@@ -32,7 +32,7 @@ Images tag as `localhost/<name>-sandbox:latest`. Builds concatenate base + sandb
 
 - Dropped caps, no-new-privileges, read-only root, ephemeral `/tmp`
 - Private user ns (`keep-id`); network on for APIs (not an exfil sandbox)
-- Cwd must be under `/home/grant/Projects` (not `/` or home); `--empty` works anywhere
+- Cwd is mounted at the same path (not `/`); prefer a narrow project dir; `--empty` works anywhere
 - Agent state: named volumes (`claude-home`, `pi-agent-home`) or tmpfs (cursor); Cursor needs `podman secret create cursor_api_key`
 - Host env/SSH/credentials are not forwarded
 

@@ -226,9 +226,8 @@ run_sandbox() {
     # A colon or comma would make the --volume spec ambiguous. Patterns on the
     # right of == and != stay unquoted so they glob-match.
     [[ "$project_dir" != *:* && "$project_dir" != *,* ]] || die 'project path must not contain a colon or comma'
-    # Only mount a directory strictly inside the projects tree, ruling out /.
-    # The trailing * is unquoted so it matches any subpath.
-    [[ "$project_dir" == /home/grant/Projects/* ]] || die 'refusing to start: current directory is not under /home/grant/Projects'
+    # Mounting host / would expose the entire filesystem read-write.
+    [[ "$project_dir" != / ]] || die 'refusing to start: current directory must not be /'
     workspace_args=(--workdir "$project_dir" --volume "$project_dir:$project_dir")
   fi
 
